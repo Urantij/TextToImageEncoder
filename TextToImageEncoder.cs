@@ -48,7 +48,7 @@ namespace TextToImageEncoder
                 /* мы хотим квадратную картинку.
                  * но если информация не помещается в квадрат, лучше добавить 1 строку
                  * чем и строку и столб */
-                var dimension = IntegerSqrt(needPixels);
+                var dimension = (int)Math.Ceiling(Math.Sqrt(needPixels));//IntegerSqrt(needPixels);
 
                 var mult = options.targetMinDimension / dimension;
                 if (mult > byte.MaxValue + 1)
@@ -79,14 +79,14 @@ namespace TextToImageEncoder
                 {
                     for (int x = skipFirstPixel ? 1 : 0; x < width; x++)
                     {
-                        skipFirstPixel = false;
-
                         var red = byteIndex < bytes.Length ? bytes[byteIndex++] : (byte)0;
                         var green = byteIndex < bytes.Length ? bytes[byteIndex++] : (byte)0;
                         var blue = byteIndex < bytes.Length ? bytes[byteIndex++] : (byte)0;
 
                         image[x, y] = new Rgb24(red, green, blue);
                     }
+
+                    skipFirstPixel = false;
                 }
 
                 if (amplified)
@@ -140,7 +140,15 @@ namespace TextToImageEncoder
 
                 bool amplified = mult > 1;
 
-                var informationPixels = image.Width * image.Height - (amplified ? 0 : 1);
+                var informationPixels = image.Width * image.Height;// - (amplified ? 0 : 1);
+                if (amplified)
+                {
+                    informationPixels /= (mult * mult);
+                }
+                else
+                {
+                    informationPixels--;
+                }
 
                 byte[] bytes = new byte[informationPixels * 3];
                 int byteIndex = 0;
@@ -160,53 +168,22 @@ namespace TextToImageEncoder
                 {
                     for (int x = skipFirstPixel ? mult : 0; x < image.Width; x += mult)
                     {
-                        skipFirstPixel = false;
-
                         var pixel = image[x, y];
 
                         bytes[byteIndex++] = pixel.R;
                         bytes[byteIndex++] = pixel.G;
                         bytes[byteIndex++] = pixel.B;
                     }
+
+                    skipFirstPixel = false;
                 }
 
-                return encoding.GetString(bytes);
+                return encoding.GetString(bytes).TrimEnd('\0');
             }
             else
             {
                 throw new Exception("каво");
             }
-        }
-
-        static int IntegerSqrt(int n)
-        {
-            if (n < 2)
-                return 2;
-
-            int shift = 2;
-            int nShifted = n >> shift;
-
-            while (nShifted != 0 && nShifted != n)
-            {
-                shift += 2;
-                nShifted = n >> shift;
-            }
-
-            shift -= 2;
-
-            var result = 0;
-            while (shift >= 0)
-            {
-                result = result << 1;
-                var candidateResult = result + 1;
-
-                if (candidateResult * candidateResult <= n >> shift)
-                    result = candidateResult;
-
-                shift -= 2;
-            }
-
-            return result;
         }
     }
 }
