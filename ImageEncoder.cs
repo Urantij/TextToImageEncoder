@@ -29,11 +29,15 @@ namespace ToImageEncoder
 
         public static Image<Rgb24> EncodeRaw(byte[] content, ImageContentType contentType, EncodingOptions? options = null)
         {
-            options = options ?? new EncodingOptions();
+            options ??= new EncodingOptions();
 
             if (options.version == 0)
             {
-                return CreateImage(content, contentType, options);
+                return CreateImageV1(content, contentType, options);
+            }
+            else if (options.version == 1)
+            {
+                return CreateImageV2(content, contentType, options);
             }
             else
             {
@@ -47,7 +51,11 @@ namespace ToImageEncoder
 
             if (meta.version == 0)
             {
-                return ReadImage(image, meta);
+                return ReadImageV1(image, meta);
+            }
+            else if (meta.version == 1)
+            {
+                return ReadImageV2(image, meta);
             }
             else
             {
@@ -65,18 +73,11 @@ namespace ToImageEncoder
         /// <exception cref="Exception"></exception>
         public static Image<Rgb24> EncodeTextUTF8(string message, EncodingOptions? options = null)
         {
-            options = options ?? new EncodingOptions();
+            options ??= new EncodingOptions();
 
-            if (options.version == 0)
-            {
-                var bytes = Encoding.UTF8.GetBytes(message);
+            var bytes = Encoding.UTF8.GetBytes(message);
 
-                return CreateImage(bytes, ImageContentType.TextUTF8, options);
-            }
-            else
-            {
-                throw new Exception("каво");
-            }
+            return EncodeRaw(bytes, ImageContentType.TextUTF8, options);
         }
 
         /// <summary>
@@ -94,19 +95,12 @@ namespace ToImageEncoder
                 throw new Exception($"не тот контент тайп ({meta.contentType} != {ImageContentType.TextUTF8})");
             }
 
-            if (meta.version == 0)
-            {
-                byte[] bytes = ReadImage(image, meta);
+            var bytes = DecodeRaw(image);
 
-                return Encoding.UTF8.GetString(bytes).TrimEnd('\0');
-            }
-            else
-            {
-                throw new Exception("каво");
-            }
+            return Encoding.UTF8.GetString(bytes).TrimEnd('\0');
         }
 
-        static Image<Rgb24> CreateImage(byte[] content, ImageContentType contentType, EncodingOptions options)
+        static Image<Rgb24> CreateImageV1(byte[] content, ImageContentType contentType, EncodingOptions options)
         {
             //это только на текст, без меты
             var needPixels = (int)Math.Ceiling(content.Length / 3f);
@@ -168,7 +162,77 @@ namespace ToImageEncoder
             return image;
         }
 
-        static byte[] ReadImage(Image<Rgb24> image, ImageMetadata meta)
+        static Image<Rgb24> CreateImageV2(byte[] content, ImageContentType contentType, EncodingOptions options)
+        {
+            //это только на текст, без меты
+            var needPixels = (int)Math.Ceiling(content.Length / 3f);
+
+            /* мы хотим квадратную картинку.
+             * но если информация не помещается в квадрат, лучше добавить 1 строку
+             * чем и строку и столб */
+            var dimension = (int)Math.Ceiling(Math.Sqrt(needPixels));
+
+            var mult = options.targetMinDimension / dimension;
+            if (mult > byte.MaxValue + 1)
+            {
+                //мультиплер не может быть 0. так что на одно значение сдвигаем
+                mult = byte.MaxValue + 1;
+            }
+
+            bool amplified = mult > 1;
+
+            if (!amplified)
+            {
+                needPixels++;
+            }
+
+            var width = dimension;
+            var height = dimension;
+
+            var image = new Image<Rgb24>(width, height);
+
+            int byteIndex = 0;
+
+            for (int imgColorIndex = 0; imgColorIndex < 3; imgColorIndex++)
+            {
+                bool skipFirstPixel = !amplified;
+
+                for (int y = 0; y < height; y++)
+                {
+                    for (int x = skipFirstPixel ? 1 : 0; x < width; x++)
+                    {
+                        var pixel = image[x, y];
+
+                        var nextColorByte = byteIndex < content.Length ? content[byteIndex++] : (byte)0;
+
+                        if (imgColorIndex == 0) pixel.R = nextColorByte;
+                        else if (imgColorIndex == 1) pixel.G = nextColorByte;
+                        else if (imgColorIndex == 2) pixel.B = nextColorByte;
+
+                        image[x, y] = pixel;
+                    }
+
+                    skipFirstPixel = false;
+                }
+            }
+
+            if (amplified)
+            {
+                var size = new Size(width * mult, height * mult);
+                image.Mutate(act => act.Resize(new ResizeOptions()
+                {
+                    Size = size,
+
+                    Sampler = KnownResamplers.NearestNeighbor
+                }));
+            }
+
+            WriteMetadata(image, mult, options.version, contentType);
+
+            return image;
+        }
+
+        static byte[] ReadImageV1(Image<Rgb24> image, ImageMetadata meta)
         {
             bool amplified = meta.dimensionMultiplier > 1;
 
@@ -211,6 +275,74 @@ namespace ToImageEncoder
             }
 
             return bytes;
+        }
+
+        static byte[] ReadImageV2(Image<Rgb24> image, ImageMetadata meta)
+        {
+            bool amplified = meta.dimensionMultiplier > 1;
+
+            var informationPixels = image.Width * image.Height;
+            if (amplified)
+            {
+                informationPixels /= (meta.dimensionMultiplier * meta.dimensionMultiplier);
+            }
+            else
+            {
+                informationPixels--;
+            }
+
+            byte[] bytes = new byte[informationPixels * 3];
+            int byteIndex = 0;
+
+            for (int imgColorIndex = 0; imgColorIndex < 3; imgColorIndex++)
+            {
+                bool skipFirstPixel = true;
+
+                // Короче, мы все скипаем первый пиксель.
+                // Если картинка амплифайд, то первый пиксель тут вручную докидывается.
+                // Как нормально сделать? TODO подумать)
+                if (amplified)
+                {
+                    var pixel = image[1, 0];
+                    byte colorValue = GetPixelColorValue(pixel, imgColorIndex);
+
+                    bytes[byteIndex++] = colorValue;
+                }
+
+                for (int y = 0; y < image.Height; y += meta.dimensionMultiplier)
+                {
+                    for (int x = skipFirstPixel ? meta.dimensionMultiplier : 0; x < image.Width; x += meta.dimensionMultiplier)
+                    {
+                        var pixel = image[x, y];
+
+                        byte colorValue = GetPixelColorValue(pixel, imgColorIndex);
+
+                        bytes[byteIndex++] = colorValue;
+                    }
+
+                    skipFirstPixel = false;
+                }
+            }
+
+            //невероятные оптимизации
+            if (amplified)
+            {
+                var firstPixel = image[1, 0];
+
+                bytes[byteIndex++] = firstPixel.R;
+                bytes[byteIndex++] = firstPixel.G;
+                bytes[byteIndex++] = firstPixel.B;
+            }
+
+            return bytes;
+        }
+
+        static byte GetPixelColorValue(Rgb24 pixel, int index)
+        {
+            if (index == 0) return pixel.R;
+            else if (index == 1) return pixel.G;
+            else if (index == 2) return pixel.B;
+            else throw new Exception("м?");
         }
     }
 }
