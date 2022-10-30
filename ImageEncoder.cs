@@ -304,7 +304,7 @@ namespace ToImageEncoder
                 if (amplified)
                 {
                     var pixel = image[1, 0];
-                    byte colorValue = GetPixelColorValue(pixel, imgColorIndex);
+                    byte colorValue = Helper.GetPixelColorValue(pixel, imgColorIndex);
 
                     bytes[byteIndex++] = colorValue;
                 }
@@ -315,7 +315,7 @@ namespace ToImageEncoder
                     {
                         var pixel = image[x, y];
 
-                        byte colorValue = GetPixelColorValue(pixel, imgColorIndex);
+                        byte colorValue = Helper.GetPixelColorValue(pixel, imgColorIndex);
 
                         bytes[byteIndex++] = colorValue;
                     }
@@ -335,14 +335,6 @@ namespace ToImageEncoder
             }
 
             return bytes;
-        }
-
-        static byte GetPixelColorValue(Rgb24 pixel, int index)
-        {
-            if (index == 0) return pixel.R;
-            else if (index == 1) return pixel.G;
-            else if (index == 2) return pixel.B;
-            else throw new Exception("м?");
         }
     }
 }
