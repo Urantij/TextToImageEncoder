@@ -4,11 +4,10 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace ToImageEncoder
+namespace ToImageEncoder;
+
+public class EncodingOptions
 {
-    public class EncodingOptions
-    {
-        public byte version = 0;
-        public int targetMinDimension = 200;
-    }
+    public byte version = 0;
+    public int targetMinDimension = 200;
 }

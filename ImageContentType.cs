@@ -1,10 +1,9 @@
-namespace ToImageEncoder
+namespace ToImageEncoder;
+
+public enum ImageContentType : byte
 {
-    public enum ImageContentType : byte
-    {
-        Unknown,
-        
-        TextUTF8,
-        TelegramVoice
-    }
+    Unknown,
+
+    TextUTF8,
+    TelegramVoice
 }
